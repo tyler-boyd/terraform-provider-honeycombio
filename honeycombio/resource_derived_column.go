@@ -125,6 +125,7 @@ func resourceDerivedColumnDelete(ctx context.Context, d *schema.ResourceData, me
 
 func readDerivedColumn(d *schema.ResourceData) *honeycombio.DerivedColumn {
 	return &honeycombio.DerivedColumn{
+		ID:          d.Id(),
 		Alias:       d.Get("alias").(string),
 		Expression:  d.Get("expression").(string),
 		Description: d.Get("description").(string),

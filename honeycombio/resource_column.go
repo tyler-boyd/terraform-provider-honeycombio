@@ -49,7 +49,7 @@ func newColumn() *schema.Resource {
 	}
 }
 
-func resourceColumnImport(ctx context.Context, d *schema.ResourceData, i interface{}) ([]*schema.ResourceData, error) {
+func resourceColumnImport(ctx context.Context, d *schema.ResourceData, meta interface{}) ([]*schema.ResourceData, error) {
 	// import ID is of the format <dataset>/<column key name>
 	// note that the dataset name can also contain '/'
 	idSegments := strings.Split(d.Id(), "/")
@@ -60,6 +60,13 @@ func resourceColumnImport(ctx context.Context, d *schema.ResourceData, i interfa
 	dataset := strings.Join(idSegments[0:len(idSegments)-1], "/")
 	alias := idSegments[len(idSegments)-1]
 
+	client := meta.(*honeycombio.Client)
+	column, err := client.Columns.GetByKeyName(ctx, dataset, alias)
+	if err != nil {
+		return nil, err
+	}
+
+	d.SetId(column.ID)
 	d.Set("key_name", alias)
 	d.Set("dataset", dataset)
 	return []*schema.ResourceData{d}, nil
@@ -71,7 +78,14 @@ func resourceColumnCreate(ctx context.Context, d *schema.ResourceData, meta inte
 	dataset := d.Get("dataset").(string)
 	column := readColumn(d)
 
-	column, err := client.Columns.Create(ctx, dataset, column)
+	existing, err := client.Columns.GetByKeyName(ctx, dataset, column.KeyName)
+
+	if err == nil {
+		d.SetId(existing.ID)
+		return resourceColumnUpdate(ctx, d, meta)
+	}
+
+	column, err = client.Columns.Create(ctx, dataset, column)
 	if err != nil {
 		return diag.FromErr(err)
 	}
@@ -119,6 +133,7 @@ func resourceColumnUpdate(ctx context.Context, d *schema.ResourceData, meta inte
 
 func readColumn(d *schema.ResourceData) *honeycombio.Column {
 	return &honeycombio.Column{
+		ID:          d.Id(),
 		KeyName:     d.Get("key_name").(string),
 		Hidden:      honeycombio.BoolPtr(d.Get("hidden").(bool)),
 		Description: d.Get("description").(string),
