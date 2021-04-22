@@ -44,7 +44,7 @@ func newDerivedColumn() *schema.Resource {
 	}
 }
 
-func resourceDerivedColumnImport(ctx context.Context, d *schema.ResourceData, i interface{}) ([]*schema.ResourceData, error) {
+func resourceDerivedColumnImport(ctx context.Context, d *schema.ResourceData, meta interface{}) ([]*schema.ResourceData, error) {
 	// import ID is of the format <dataset>/<derived column alias>
 	// note that the dataset name can also contain '/'
 	idSegments := strings.Split(d.Id(), "/")
@@ -55,6 +55,13 @@ func resourceDerivedColumnImport(ctx context.Context, d *schema.ResourceData, i 
 	dataset := strings.Join(idSegments[0:len(idSegments)-1], "/")
 	alias := idSegments[len(idSegments)-1]
 
+	client := meta.(*honeycombio.Client)
+	derivedColumn, err := client.DerivedColumns.GetByAlias(ctx, dataset, alias)
+	if err != nil {
+		return nil, err
+	}
+
+	d.SetId(derivedColumn.ID)
 	d.Set("alias", alias)
 	d.Set("dataset", dataset)
 	return []*schema.ResourceData{d}, nil
@@ -66,7 +73,13 @@ func resourceDerivedColumnCreate(ctx context.Context, d *schema.ResourceData, me
 	dataset := d.Get("dataset").(string)
 	derivedColumn := readDerivedColumn(d)
 
-	derivedColumn, err := client.DerivedColumns.Create(ctx, dataset, derivedColumn)
+	existing, err := client.DerivedColumns.GetByAlias(ctx, dataset, derivedColumn.Alias)
+	if err == nil {
+		d.SetId(existing.ID)
+		return resourceDerivedColumnUpdate(ctx, d, meta)
+	}
+
+	derivedColumn, err = client.DerivedColumns.Create(ctx, dataset, derivedColumn)
 	if err != nil {
 		return diag.FromErr(err)
 	}
