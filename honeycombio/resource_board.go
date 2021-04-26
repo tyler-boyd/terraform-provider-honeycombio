@@ -3,6 +3,7 @@ package honeycombio
 import (
 	"context"
 	"encoding/json"
+	"errors"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
@@ -56,10 +57,14 @@ func newBoard() *schema.Resource {
 						},
 						"query_json": {
 							Type:             schema.TypeString,
-							Required:         true,
+							Optional:         true,
 							ValidateDiagFunc: validateQueryJSON(),
 						},
-						"query_annotation": {
+						"query_id": {
+							Type:     schema.TypeString,
+							Optional: true,
+						},
+						"query_annotation_id": {
 							Type:     schema.TypeString,
 							Optional: true,
 						},
@@ -73,7 +78,7 @@ func newBoard() *schema.Resource {
 func resourceBoardCreate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
 	client := meta.(*honeycombio.Client)
 
-	b, err := expandBoard(ctx, d, meta)
+	b, err := expandBoard(d)
 	if err != nil {
 		return diag.FromErr(err)
 	}
@@ -144,7 +149,7 @@ func resourceBoardRead(ctx context.Context, d *schema.ResourceData, meta interfa
 func resourceBoardUpdate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
 	client := meta.(*honeycombio.Client)
 
-	b, err := expandBoard(ctx, d, meta)
+	b, err := expandBoard(d)
 	if err != nil {
 		return diag.FromErr(err)
 	}
@@ -168,48 +173,32 @@ func resourceBoardDelete(ctx context.Context, d *schema.ResourceData, meta inter
 	return nil
 }
 
-func expandBoard(ctx context.Context, d *schema.ResourceData, meta interface{}) (*honeycombio.Board, error) {
+func expandBoard(d *schema.ResourceData) (*honeycombio.Board, error) {
 	var queries []honeycombio.BoardQuery
-	client := meta.(*honeycombio.Client)
 
 	qs := d.Get("query").([]interface{})
 	for _, q := range qs {
 		m := q.(map[string]interface{})
 		dataset := m["dataset"].(string)
 
-		var querySpec honeycombio.QuerySpec
-		err := json.Unmarshal([]byte(m["query_json"].(string)), &querySpec)
-		if err != nil {
-			return nil, err
+		if d.Get("query_json") != "" && d.Get("query_id") != "" {
+			return nil, errors.New("board: cannot specify both query_json and query_id")
 		}
 
-		query, err := client.Queries.Create(ctx, dataset, &querySpec)
-		if err != nil {
-			return nil, err
-		}
-		annotationName := m["query_annotation"].(string)
-		annotationId := ""
-		if annotationName != "" {
-			annotation, err := client.QueryAnnotations.Create(ctx, dataset, &honeycombio.QueryAnnotation{
-				Name:    annotationName,
-				QueryID: *query.ID,
-			})
+		var querySpec *honeycombio.QuerySpec
+		if d.Get("query_json") != "" {
+			err := json.Unmarshal([]byte(m["query_json"].(string)), querySpec)
 			if err != nil {
 				return nil, err
 			}
-			annotationId = annotation.ID
-		}
-
-		if err != nil {
-			return nil, err
 		}
 
 		queries = append(queries, honeycombio.BoardQuery{
 			Caption:           m["caption"].(string),
 			QueryStyle:        honeycombio.BoardQueryStyle(m["query_style"].(string)),
 			Dataset:           dataset,
-			QueryID:           *query.ID,
-			QueryAnnotationID: annotationId,
+			QueryID:           m["query_id"].(string),
+			QueryAnnotationID: m["query_annotation_id"].(string),
 		})
 	}
 
