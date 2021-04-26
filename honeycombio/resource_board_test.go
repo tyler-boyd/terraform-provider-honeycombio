@@ -47,14 +47,14 @@ data "honeycombio_query" "test" {
   filter {
     column = "duration_ms"
     op     = ">"
-    value  = count.index 
+    value  = count.index
   }
 }
 
 resource "honeycombio_board" "test" {
   name  = "Test board from terraform-provider-honeycombio"
   style = "list"
-     
+
   query {
     caption = "test query 0"
     dataset = "%s"
@@ -92,7 +92,7 @@ func testAccCheckBoardExists(t *testing.T, name string) resource.TestCheckFunc {
 					Caption:    "test query 0",
 					QueryStyle: honeycombio.BoardQueryStyleGraph,
 					Dataset:    testAccDataset(),
-					Query: honeycombio.QuerySpec{
+					Query: &honeycombio.QuerySpec{
 						Calculations: []honeycombio.CalculationSpec{
 							{
 								Op:     honeycombio.CalculationOpAvg,
@@ -113,7 +113,7 @@ func testAccCheckBoardExists(t *testing.T, name string) resource.TestCheckFunc {
 					Caption:    "test query 1",
 					QueryStyle: honeycombio.BoardQueryStyleCombo,
 					Dataset:    testAccDataset(),
-					Query: honeycombio.QuerySpec{
+					Query: &honeycombio.QuerySpec{
 						Calculations: []honeycombio.CalculationSpec{
 							{
 								Op:     honeycombio.CalculationOpAvg,
