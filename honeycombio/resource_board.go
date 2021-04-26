@@ -59,6 +59,10 @@ func newBoard() *schema.Resource {
 							Required:         true,
 							ValidateDiagFunc: validateQueryJSON(),
 						},
+						"query_annotation": {
+							Type:     schema.TypeString,
+							Optional: true,
+						},
 					},
 				},
 			},
@@ -69,7 +73,7 @@ func newBoard() *schema.Resource {
 func resourceBoardCreate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
 	client := meta.(*honeycombio.Client)
 
-	b, err := expandBoard(d)
+	b, err := expandBoard(ctx, d, meta)
 	if err != nil {
 		return diag.FromErr(err)
 	}
@@ -112,7 +116,7 @@ func resourceBoardRead(ctx context.Context, d *schema.ResourceData, meta interfa
 	queries := make([]map[string]interface{}, len(b.Queries))
 
 	for i, q := range b.Queries {
-		queryJSON, err := encodeQuery(&q.Query)
+		queryJSON, err := encodeQuery(q.Query)
 		if err != nil {
 			return diag.FromErr(err)
 		}
@@ -122,6 +126,13 @@ func resourceBoardRead(ctx context.Context, d *schema.ResourceData, meta interfa
 			"query_style": q.QueryStyle,
 			"dataset":     q.Dataset,
 			"query_json":  queryJSON,
+		}
+		if q.QueryAnnotationID != "" {
+			annotation, err := client.QueryAnnotations.Get(ctx, q.Dataset, q.QueryAnnotationID)
+			if err != nil {
+				return diag.FromErr(err)
+			}
+			queries[i]["query_annotation"] = annotation.Name
 		}
 	}
 
@@ -133,7 +144,7 @@ func resourceBoardRead(ctx context.Context, d *schema.ResourceData, meta interfa
 func resourceBoardUpdate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
 	client := meta.(*honeycombio.Client)
 
-	b, err := expandBoard(d)
+	b, err := expandBoard(ctx, d, meta)
 	if err != nil {
 		return diag.FromErr(err)
 	}
@@ -157,24 +168,48 @@ func resourceBoardDelete(ctx context.Context, d *schema.ResourceData, meta inter
 	return nil
 }
 
-func expandBoard(d *schema.ResourceData) (*honeycombio.Board, error) {
+func expandBoard(ctx context.Context, d *schema.ResourceData, meta interface{}) (*honeycombio.Board, error) {
 	var queries []honeycombio.BoardQuery
+	client := meta.(*honeycombio.Client)
 
 	qs := d.Get("query").([]interface{})
 	for _, q := range qs {
 		m := q.(map[string]interface{})
+		dataset := m["dataset"].(string)
 
-		var query honeycombio.QuerySpec
-		err := json.Unmarshal([]byte(m["query_json"].(string)), &query)
+		var querySpec honeycombio.QuerySpec
+		err := json.Unmarshal([]byte(m["query_json"].(string)), &querySpec)
+		if err != nil {
+			return nil, err
+		}
+
+		query, err := client.Queries.Create(ctx, dataset, &querySpec)
+		if err != nil {
+			return nil, err
+		}
+		annotationName := m["query_annotation"].(string)
+		annotationId := ""
+		if annotationName != "" {
+			annotation, err := client.QueryAnnotations.Create(ctx, dataset, &honeycombio.QueryAnnotation{
+				Name:    annotationName,
+				QueryID: *query.ID,
+			})
+			if err != nil {
+				return nil, err
+			}
+			annotationId = annotation.ID
+		}
+
 		if err != nil {
 			return nil, err
 		}
 
 		queries = append(queries, honeycombio.BoardQuery{
-			Caption:    m["caption"].(string),
-			QueryStyle: honeycombio.BoardQueryStyle(m["query_style"].(string)),
-			Dataset:    m["dataset"].(string),
-			Query:      query,
+			Caption:           m["caption"].(string),
+			QueryStyle:        honeycombio.BoardQueryStyle(m["query_style"].(string)),
+			Dataset:           dataset,
+			QueryID:           *query.ID,
+			QueryAnnotationID: annotationId,
 		})
 	}
 
